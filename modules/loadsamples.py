@@ -64,9 +64,11 @@ class LoadingSamples:
     def load_preset(self):
 
         if self.LoadingThread:
+            print "KILL OLD THREAD"
             self.LoadingInterrupt = True
             self.LoadingThread.join()
             self.LoadingThread = None
+            print "KILL OLD THREAD DONE"
 
         if gv.nav.nav_pressed == True:
             self.pause_if_playingsounds_or_midi()
@@ -75,9 +77,18 @@ class LoadingSamples:
         self.preset_current_selected = gv.samples_indices[gv.preset]  # same as loading. load_samples() will change _loading, but _selected remains
 
         self.LoadingInterrupt = False
-        self.LoadingThread = threading.Thread(target=self.actually_load)
+        self.LoadingThread = threading.Thread(target=self.load_all)
         self.LoadingThread.daemon = True
         self.LoadingThread.start()
+
+    def load_all(self):
+        print "CLOSE STREAM"
+        gv.sound.close_stream()
+        print "CLOSE STREAM DONE"
+        loadNext = self.actually_load()
+        while loadNext:
+            loadNext = self.load_next_preset()
+        gv.sound.start_sounddevice_stream()
 
     ######################
     # Update LCD display #
@@ -193,7 +204,6 @@ class LoadingSamples:
     #####################
 
     def check_memory_usage(self, preset_index=None):
-
         if preset_index == None:
             preset_index = self.preset_current_loading
 
@@ -212,7 +222,7 @@ class LoadingSamples:
         print '     Sample-set size : %.2fMB | Available RAM : %.2fMB' % (float(current_dir_size / 1024 / 1024.0),
                                                                           float(RAM_free / 1024 / 1024.0))
 
-        if (RAM_usage_percentage >= gv.RAM_LIMIT_PERCENTAGE) or (current_dir_size >= RAM_free):
+        if (RAM_usage_percentage >= gv.RAM_LIMIT_PERCENTAGE): # or (current_dir_size >= RAM_free):
 
             print '     RAM usage : %d%% | RAM limit : %d%%' % (RAM_usage_percentage, gv.RAM_LIMIT_PERCENTAGE)
             print ' x   RAM usage has reached limit OR dir size exceeds available RAM'
@@ -320,21 +330,20 @@ class LoadingSamples:
                 self.preset_next_to_load = self.get_next_preset(self.preset_current_loading)
 
                 if self.preset_next_to_load == gv.preset:
-                    return True
+                    return False
 
             self.preset_current_loading = self.preset_next_to_load
-            # time.sleep(0.05)  # allow a tiny pause before loading next preset for LCD
+            #time.sleep(0.05)  # allow a tiny pause before loading next preset for LCD
 
             # if gv.displayer.menu_mode == 'preset':
             #     gv.displayer.disp_change('preset') # force display to update
 
-            self.actually_load()  # load next preset
+            return self.actually_load()  # load next preset
 
     ###################################
 
 
     def load_samples(self):
-
         # Reset defaults
         current_basename = gv.SETLIST_LIST[self.preset_current_loading]
         voices_this_preset = []
@@ -690,7 +699,6 @@ class LoadingSamples:
     ###################################
 
     def fill_notes(self):
-
         ################
         # NOTE FILLING #
         ################
@@ -893,7 +901,9 @@ class LoadingSamples:
         print 'RAM check at END of preset load'
         self.check_memory_usage(self.get_next_preset(cur_preset))  # check memory again to see if we can load the next preset
 
+        loadNext = False
         if self.memory_limit_reached == False:
-            self.load_next_preset()
+            loadNext = True
         else:
             self.update_display('preset')
+        return loadNext

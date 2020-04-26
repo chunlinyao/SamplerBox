@@ -74,12 +74,12 @@ except:
 # Fix MIDI Serial #
 ###################
 
-try:
-    subprocess.call(['systemctl', 'stop', 'serial-getty@ttyAMA0.service'])
-    subprocess.call(['systemctl', 'disable', 'serial-getty@ttyAMA0.service'])
-except:
-    print 'Failed to stop MIDI serial'
-    pass
+#try:
+#    subprocess.call(['systemctl', 'stop', 'serial-getty@ttyAMA0.service'])
+#    subprocess.call(['systemctl', 'disable', 'serial-getty@ttyAMA0.service'])
+#except:
+#    print 'Failed to stop MIDI serial'
+#    pass
 
 ###########
 # Logging #
@@ -144,7 +144,7 @@ gv.sysfunc = systemfunctions.SystemFunctions()
 gv.ls = loadsamples.LoadingSamples()
 bnt = buttons.Buttons()
 gv.midicallback = midicallback.Midi()
-gv.midiserial = midiserial.MIDISerial(midicallback=gv.midicallback)
+#gv.midiserial = midiserial.MIDISerial(midicallback=gv.midicallback)
 
 import modules.gui as gui
 
@@ -167,7 +167,7 @@ gv.ls.load_preset()
 # possible solution at http://www.samplerbox.org/forum/146     #
 ################################################################
 
-gv.midiserial.start()
+#gv.midiserial.start()   #YAO
 
 #################################
 # Test initial script load time #
@@ -187,6 +187,16 @@ midi_in = rtmidi2.MidiInMulti()
 curr_ports = []
 prev_ports = []
 first_loop = True
+
+#time.sleep(20)
+#for x in range(50):
+#    midinote = 60
+#    midichannel = 1
+#    velocity = 120
+#    gv.ac.noteon(midinote=midinote, midichannel=midichannel, velocity=velocity)
+#    time.sleep(2)
+#    gv.ac.noteoff(midinote=midinote, midichannel=midichannel)
+#    time.sleep(1)
 
 time.sleep(0.5)
 
@@ -216,7 +226,7 @@ try:
                     print '====  END GETTING MIDI DEVICES  ====\n'
                 prev_ports = curr_ports
                 first_loop = False
-            time.sleep(0.2)
+            time.sleep(0.5)
 
 
     if gv.USE_GUI and not gv.IS_DEBIAN:
@@ -236,14 +246,15 @@ try:
 
     else:
         midi_devices_loop()  # this is the main loop
-
 except KeyboardInterrupt:
     print "\nStopped by CTRL-C\n"
     gv.sysfunc.shutdown(log_file)
+    gv.sound.close_stream()
     exit()
 except:
     print "\nStopped by other error\n"
     gv.sysfunc.shutdown(log_file)
+    gv.sound.close_stream()
     exit()
 
 # TODO: returns fatal errors to the LCD screen. `try:` needs to encapsulate whole script. Buggy.

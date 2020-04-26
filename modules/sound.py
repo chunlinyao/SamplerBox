@@ -7,6 +7,10 @@ import sounddevice
 import globalvars as gv
 import exceptions_samplerbox
 import re
+import pyaudio
+import traceback
+import time
+
 if gv.IS_DEBIAN:
     import alsaaudio
 
@@ -119,6 +123,7 @@ class Sound:
         wf.close()
 
     def play(self, note, vel):
+        print "PlaySound####%s" % self.fname
         snd = PlayingSound(self, note, vel, self.mode, self.mutegroup)
         # print 'fname: ' + self.fname + ' note/vel: ' + str(note) + '/' + str(vel) + ' midinote: ' + str(self.midinote) + ' vel: ' + str(self.velocity)
         gv.playingsounds.append(snd)
@@ -137,6 +142,43 @@ class Sound:
 ##################
 # AUDIO CALLBACK #
 ##################
+
+def pyaudio_callback(in_data, frame_count, time_info, status):
+    try:
+        if status != 0:
+            print status
+        rmlist = []
+        gv.playingsounds = gv.playingsounds[-gv.MAX_POLYPHONY:]
+
+        b = samplerbox_audio.mixaudiobuffers(gv.playingsounds, rmlist, frame_count, gv.FADEOUT, gv.FADEOUTLENGTH,
+                                            gv.PRERELEASE, gv.SPEED, gv.SPEEDRANGE, gv.PITCHBEND, gv.PITCHSTEPS)
+
+        """
+        With the below uncommented, a MIDI volume controller will control ALSA audio only.
+        This is problematic; we want to control ALSA only. Full volume sounddevice might cause distortion.
+        """
+        # if gv.USE_ALSA_MIXER == False: # Use alsamixer's setvolume instead
+        b *= (gv.global_volume * gv.volumeCC)
+        if gv.USE_FREEVERB and gv.IS_DEBIAN:
+            b_verb = b
+            gv.ac.reverb.freeverbprocess(b_verb.ctypes.data_as(gv.ac.reverb.c_float_p),
+                                        b.ctypes.data_as(gv.ac.reverb.c_float_p), frame_count)
+
+            # if gv.USE_ALSA_MIXER == False:  # Use alsamixer's setvolume instead
+            b_verb *= (gv.global_volume * gv.volumeCC)
+
+        for e in rmlist:
+            try:
+                gv.playingsounds.remove(e)
+            except:
+                pass
+
+        #outdata = b.astype('int16').tostring()
+        outdata = b.astype('int16').tostring()
+        #print outdata[0:20]
+        return (outdata, pyaudio.paContinue)
+    except:
+        traceback.print_exc()
 
 def audio_callback(outdata, frame_count, time_info, status):
     rmlist = []
@@ -189,6 +231,7 @@ class StartSound:
         self.mixer_card_index = 0
         self.mixer_id = 0
         self.mixer_control = 'PCM'
+        self.alib = 1
 
         device_name = self.set_audio_device(gv.AUDIO_DEVICE_NAME)
 
@@ -212,8 +255,23 @@ class StartSound:
     ############################
     # Start sounddevice stream #
     ############################
-
     def start_sounddevice_stream(self, latency='low'):
+        if self.alib == 1:
+            print "YAO METHOD"
+            print self.mixer_control
+            self.do_start_pyaudio_stream(latency)
+        else:
+            self.do_start_sounddevice_stream(latency)
+    def do_start_pyaudio_stream(self, latency='low'):
+        self.pya = pyaudio.PyAudio()
+        try:
+            self.sd = self.pya.open(format=pyaudio.paInt16, output=True, rate=gv.SAMPLERATE, channels=2, frames_per_buffer=512, stream_callback=pyaudio_callback)
+            self.sd.start_stream()
+            print '>>>> Opened PYAUDIO audio device #%i (latency: %ims)' % (gv.AUDIO_DEVICE_ID, self.sd.get_output_latency() * 1000)
+        except:
+            print 'Invalid audio device #%i' % gv.AUDIO_DEVICE_ID
+
+    def do_start_sounddevice_stream(self, latency='low'):
 
         try:
             self.sd = sounddevice.OutputStream(device=gv.AUDIO_DEVICE_ID, blocksize=512, latency=latency, samplerate=gv.SAMPLERATE, channels=2, dtype='int16', callback=audio_callback)
@@ -236,11 +294,17 @@ class StartSound:
         self.amixer.setvolume(100) # Just set it to 100% and let sounddevice control volume
 
     def start_alsa_mixer(self):
-        self.amixer = alsaaudio.Mixer(id=self.mixer_id, cardindex=self.mixer_card_index, control=self.mixer_control)
+        if self.alib==1 or 'A2DP' in self.mixer_control:
+            print "START MIXER CHUNLINYAO"
+            self.amixer = alsaaudio.Mixer(control=self.mixer_control)
+        else:
+            self.amixer = alsaaudio.Mixer(id=self.mixer_id, cardindex=self.mixer_card_index, control=self.mixer_control)
+        print "GLOBAL VOLUME"
+        print gv.global_volume_percent
         self.set_alsa_volume(gv.global_volume_percent)
 
     def is_alsa_device(self, device_name):
-        # print 'MIXERS: %s' % alsaaudio.mixers() #show available mixer controls
+        print 'MIXERS: %s' % alsaaudio.mixers() #show available mixer controls
 
         if gv.IS_DEBIAN == False:
             return
@@ -249,15 +313,24 @@ class StartSound:
             mixer_card_index = 0
         else:
             mixer_card_index = re.search('\(hw:(.*),', device_name) # get x from (hw:x,y) in device name
-            mixer_card_index = int(mixer_card_index.group(1))
+            print mixer_card_index
+            if mixer_card_index == None:
+                mixer_card_index = 0
+            else:
+                mixer_card_index = int(mixer_card_index.group(1))
 
         available_mixer_types = alsaaudio.mixers() # returns a list of available mixer types. Usually only "PCM"
+        print "YAO CHUN LIN"
+        print available_mixer_types
 
         for mixer_control in available_mixer_types:
             print '>>>> Trying mixer control "%s"' % mixer_control
             for mixer_id in range(0, 6):
                 try:
-                    amixer = alsaaudio.Mixer(id=mixer_id, cardindex=mixer_card_index, control=mixer_control)
+                    if self.alib==1 or 'A2DP' in mixer_control:
+                        amixer = alsaaudio.Mixer(control=mixer_control)
+                    else:
+                        amixer = alsaaudio.Mixer(id=mixer_id, cardindex=mixer_card_index, control=mixer_control)
                     print amixer.cardname()
                     del amixer # No use for amixer in this method. Create instance in start_alsa_mixer()
                     gv.USE_ALSA_MIXER = True
@@ -285,10 +358,19 @@ class StartSound:
 
     def close_stream(self):
         if self.sd:
-            print ">>>> Closing sounddevice stream"
-            self.sd.abort()
-            self.sd.stop()
-            self.sd.close()
+            if self.alib == 1:
+                #print "WAIT stop_stream"
+                #self.sd.stop_stream()
+                print "WAIT close"
+                self.sd.close()
+                print "WAIT terminate"
+                self.pya.terminate()
+                print "DONE terminate"
+            else:
+                print ">>>> Closing sounddevice stream"
+                self.sd.abort()
+                self.sd.stop()
+                self.sd.close()
 
     def get_all_audio_devices(self):
         all_output_devices = {}
@@ -362,5 +444,3 @@ class StartSound:
         except:
             print "There was an error setting the audio device"
             pass
-
-

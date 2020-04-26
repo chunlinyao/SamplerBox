@@ -54,6 +54,7 @@ global_volume = 100  # ignore config.ini value and set to max
 global_volume_percent = int((float(global_volume) / 100.0) * 100)
 global_volume = 0 if global_volume < 0 else 100 if global_volume > 100 else global_volume
 global_volume = (10.0 ** (-12.0 / 20.0)) * (float(global_volume) / 100.0)
+global_volume = 0.6
 SAMPLES_DIR = str(cp.get_option_by_name('SAMPLES_DIR'))
 if path.basename(sys.modules['__main__'].__file__) == "samplerbox.py":
     if not os.path.isdir(SAMPLES_DIR):
